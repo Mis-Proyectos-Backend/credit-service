@@ -1,0 +1,158 @@
+openapi: 3.1.0
+info:
+  title: OpenAPI definition
+  version: v0
+servers:
+- url: http://localhost:8083
+  description: Generated server url
+paths:
+  /credits:
+    get:
+      tags:
+      - credit-controller
+      operationId: findAll
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Credit"
+    post:
+      tags:
+      - credit-controller
+      operationId: create
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Credit"
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/Credit"
+  /credits/{creditId}/payments:
+    post:
+      tags:
+      - credit-controller
+      operationId: pay
+      parameters:
+      - name: creditId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: amount
+        in: query
+        required: true
+        schema:
+          type: number
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/Credit"
+  /credits/{creditId}/consume:
+    post:
+      tags:
+      - credit-controller
+      operationId: consume
+      parameters:
+      - name: creditId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: amount
+        in: query
+        required: true
+        schema:
+          type: number
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/Credit"
+  /credits/{id}:
+    get:
+      tags:
+      - credit-controller
+      operationId: findById
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/Credit"
+    delete:
+      tags:
+      - credit-controller
+      operationId: delete
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          description: OK
+  /credits/customer/{customerId}:
+    get:
+      tags:
+      - credit-controller
+      operationId: findByCustomerId
+      parameters:
+      - name: customerId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Credit"
+components:
+  schemas:
+    Credit:
+      type: object
+      properties:
+        id:
+          type: string
+        customerId:
+          type: string
+        creditType:
+          type: string
+          enum:
+          - PERSONAL
+          - BUSINESS
+          - CREDIT_CARD
+        creditLimit:
+          type: number
+        outstandingBalance:
+          type: number
+        createdAt:
+          type: string
+          format: date
