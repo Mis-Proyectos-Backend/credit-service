@@ -21,13 +21,18 @@ public class Credit {
     @Id
     private String id;
 
+    // Cliente propietario del crédito
     private String customerId;
 
+    // PERSONAL, BUSINESS o CREDIT_CARD
     private CreditType creditType;
 
-    private BigDecimal amount;
+    // Monto aprobado del préstamo o límite de la tarjeta
+    private BigDecimal creditLimit;
 
+    // Deuda pendiente del crédito o tarjeta
     private BigDecimal outstandingBalance;
 
+    // Fecha de creación
     private LocalDate createdAt;
 }

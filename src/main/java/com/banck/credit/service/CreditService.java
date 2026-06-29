@@ -18,5 +18,7 @@ public interface CreditService {
 
     Mono<Credit> pay(String creditId, BigDecimal amount);
 
+    Mono<Credit>  consume(String creditId, BigDecimal amount);
+
     Mono<Void> delete(String id);
 }

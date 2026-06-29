@@ -56,6 +56,15 @@ public class CreditController {
                 .map(ResponseEntity::ok);
     }
 
+    @PostMapping("/{creditId}/consume")
+    public Mono<ResponseEntity<Credit>> consume(
+            @PathVariable String creditId,
+            @RequestParam BigDecimal amount) {
+
+        return service.consume(creditId, amount)
+                .map(ResponseEntity::ok);
+    }
+
     @DeleteMapping("/{id}")
     public Mono<Void> delete(@PathVariable String id) {
         return service.delete(id);

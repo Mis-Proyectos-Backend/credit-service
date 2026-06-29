@@ -45,20 +45,23 @@ public class CreditServiceImpl implements CreditService {
                                                         "Customer already has a personal credit"));
                                     }
 
-                                    credit.setCreatedAt(LocalDate.now());
-                                    credit.setOutstandingBalance(
-                                            credit.getAmount());
-
-                                    return repository.save(credit);
+                                    return saveCredit(credit);
                                 });
                     }
-
-                    credit.setCreatedAt(LocalDate.now());
-                    credit.setOutstandingBalance(
-                            credit.getAmount());
-
-                    return repository.save(credit);
+                    return saveCredit(credit);
                 });
+    }
+
+    private Mono<Credit> saveCredit(Credit credit) {
+        credit.setCreatedAt(LocalDate.now());
+        if (credit.getCreditType() == CreditType.CREDIT_CARD) {
+            // La tarjeta inicia sin deuda
+            credit.setOutstandingBalance(BigDecimal.ZERO);
+        } else {
+            // Los préstamos inician debiendo el monto otorgado
+            credit.setOutstandingBalance(credit.getCreditLimit());
+        }
+        return repository.save(credit);
     }
 
     @Override
@@ -76,22 +79,67 @@ public class CreditServiceImpl implements CreditService {
         return repository.findByCustomerId(customerId);
     }
 
-
     @Override
     public Mono<Credit> pay(String creditId, BigDecimal amount) {
 
+        if (amount.compareTo(BigDecimal.ZERO) <= 0) {
+            return Mono.error(
+                    new IllegalArgumentException("Amount must be greater than zero"));
+        }
+
         return repository.findById(creditId)
+                .switchIfEmpty(
+                        Mono.error(new RuntimeException("Credit not found")))
                 .flatMap(credit -> {
 
-                    BigDecimal newBalance =
-                            credit.getOutstandingBalance()
-                                    .subtract(amount);
-
-                    if (newBalance.compareTo(BigDecimal.ZERO) < 0) {
-                        newBalance = BigDecimal.ZERO;
+                    if (amount.compareTo(credit.getOutstandingBalance()) > 0) {
+                        return Mono.error(
+                                new RuntimeException(
+                                        "Payment exceeds outstanding balance"));
                     }
 
+                    BigDecimal newBalance = credit.getOutstandingBalance()
+                            .subtract(amount);
+
                     credit.setOutstandingBalance(newBalance);
+
+                    return repository.save(credit);
+                });
+    }
+
+    @Override
+    public Mono<Credit> consume(String creditId, BigDecimal transactionAmount) {
+
+        if (transactionAmount.compareTo(BigDecimal.ZERO) <= 0) {
+            return Mono.error(
+                    new IllegalArgumentException("Amount must be greater than zero"));
+        }
+
+        return repository.findById(creditId)
+                .switchIfEmpty(
+                        Mono.error(new RuntimeException("Credit not found")))
+                .flatMap(credit -> {
+
+                    // Solo las tarjetas de crédito permiten consumos
+                    if (credit.getCreditType() != CreditType.CREDIT_CARD) {
+                        return Mono.error(
+                                new RuntimeException(
+                                        "Only credit cards allow consumption"));
+                    }
+
+                    // Crédito disponible
+                    BigDecimal available = credit.getCreditLimit()
+                            .subtract(credit.getOutstandingBalance());
+
+                    // Validar que no exceda el límite
+                    if (transactionAmount.compareTo(available) > 0) {
+                        return Mono.error(
+                                new RuntimeException("Credit limit exceeded"));
+                    }
+
+                    // Registrar el consumo (aumenta la deuda)
+                    credit.setOutstandingBalance(
+                            credit.getOutstandingBalance().add(transactionAmount));
 
                     return repository.save(credit);
                 });
