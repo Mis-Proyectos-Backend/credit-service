@@ -1,5 +1,6 @@
 package com.banck.credit.controller;
 
+import com.banck.credit.dto.PaymentRequest;
 import com.banck.credit.model.Credit;
 import com.banck.credit.service.CreditService;
 import org.springframework.http.ResponseEntity;
@@ -62,6 +63,18 @@ public class CreditController {
             @RequestParam BigDecimal amount) {
 
         return service.consume(creditId, amount)
+                .map(ResponseEntity::ok);
+    }
+
+    @PostMapping("/{creditId}/payment")
+    public Mono<ResponseEntity<Credit>> payCredit(
+            @PathVariable String creditId,
+            @RequestBody PaymentRequest request) {
+
+        return service.payCredit(
+                        creditId,
+                        request.getAccountId(),
+                        request.getAmount())
                 .map(ResponseEntity::ok);
     }
 

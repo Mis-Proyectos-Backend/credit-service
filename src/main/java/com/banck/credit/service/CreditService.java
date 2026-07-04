@@ -16,9 +16,8 @@ public interface CreditService {
 
     Flux<Credit> findByCustomerId(String customerId);
 
-    Mono<Credit> pay(String creditId, BigDecimal amount);
-
     Mono<Credit>  consume(String creditId, BigDecimal amount);
 
     Mono<Void> delete(String id);
-}
+
+    Mono<Credit> payCredit(String creditId, String accountId, BigDecimal amount);}

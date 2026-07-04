@@ -1,5 +1,6 @@
 package com.banck.credit.service.Impl;
 
+import com.banck.credit.client.AccountClient;
 import com.banck.credit.client.CustomerClient;
 import com.banck.credit.enums.CreditType;
 import com.banck.credit.model.Credit;
@@ -17,11 +18,15 @@ public class CreditServiceImpl implements CreditService {
 
     private final CreditRepository repository;
     private final CustomerClient customerClient;
+    private final AccountClient accountClient;
+
 
     public CreditServiceImpl(CreditRepository repository,
-                             CustomerClient customerClient) {
+                             CustomerClient customerClient,
+                             AccountClient accountClient) {
         this.repository = repository;
         this.customerClient = customerClient;
+        this.accountClient = accountClient;
     }
 
     @Override
@@ -80,34 +85,6 @@ public class CreditServiceImpl implements CreditService {
     }
 
     @Override
-    public Mono<Credit> pay(String creditId, BigDecimal amount) {
-
-        if (amount.compareTo(BigDecimal.ZERO) <= 0) {
-            return Mono.error(
-                    new IllegalArgumentException("Amount must be greater than zero"));
-        }
-
-        return repository.findById(creditId)
-                .switchIfEmpty(
-                        Mono.error(new RuntimeException("Credit not found")))
-                .flatMap(credit -> {
-
-                    if (amount.compareTo(credit.getOutstandingBalance()) > 0) {
-                        return Mono.error(
-                                new RuntimeException(
-                                        "Payment exceeds outstanding balance"));
-                    }
-
-                    BigDecimal newBalance = credit.getOutstandingBalance()
-                            .subtract(amount);
-
-                    credit.setOutstandingBalance(newBalance);
-
-                    return repository.save(credit);
-                });
-    }
-
-    @Override
     public Mono<Credit> consume(String creditId, BigDecimal transactionAmount) {
 
         if (transactionAmount.compareTo(BigDecimal.ZERO) <= 0) {
@@ -122,9 +99,7 @@ public class CreditServiceImpl implements CreditService {
 
                     // Solo las tarjetas de crédito permiten consumos
                     if (credit.getCreditType() != CreditType.CREDIT_CARD) {
-                        return Mono.error(
-                                new RuntimeException(
-                                        "Only credit cards allow consumption"));
+                        return Mono.error(new RuntimeException("Only credit cards allow consumption"));
                     }
 
                     // Crédito disponible
@@ -148,5 +123,65 @@ public class CreditServiceImpl implements CreditService {
     @Override
     public Mono<Void> delete(String id) {
         return repository.deleteById(id);
+    }
+
+    @Override
+    public Mono<Credit> payCredit(String creditId, String accountId, BigDecimal amount) {
+        if (amount.compareTo(BigDecimal.ZERO) <= 0) {
+            return Mono.error(
+                    new IllegalArgumentException(
+                            "Amount must be greater than zero"));
+        }
+
+        return repository.findById(creditId)
+
+                .switchIfEmpty(
+                        Mono.error(new RuntimeException("Credit not found")))
+
+                .flatMap(credit ->
+                        validatePayment(accountId, amount)
+
+                                .flatMap(valid -> {
+
+                                    if (!valid) {
+                                        return Mono.error(
+                                                new RuntimeException(
+                                                        "Insufficient balance"));
+                                    }
+
+                                    return executePayment(
+                                            accountId,
+                                            amount,
+                                            credit);
+                                }));
+    }
+
+    private Mono<Boolean> validatePayment(String accountId, BigDecimal amount) {
+        return accountClient.getAccountsByCustomer(accountId)
+                .any(account ->
+                        account.getId().equals(accountId)
+                                && account.getBalance()
+                                .compareTo(amount) >= 0);
+    }
+
+    private Mono<Credit> executePayment(String accountId,
+                                        BigDecimal amount,
+                                        Credit credit) {
+
+        return accountClient.withdraw(accountId, amount)
+
+                .flatMap(account -> applyPayment(credit, amount));
+    }
+
+    private Mono<Credit> applyPayment(Credit credit,
+                                      BigDecimal amount) {
+
+        BigDecimal newBalance =
+                credit.getOutstandingBalance()
+                        .subtract(amount);
+
+        credit.setOutstandingBalance(newBalance);
+
+        return repository.save(credit);
     }
 }
