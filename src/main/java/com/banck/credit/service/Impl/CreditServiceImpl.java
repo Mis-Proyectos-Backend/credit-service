@@ -3,6 +3,7 @@ package com.banck.credit.service.Impl;
 import com.banck.credit.client.AccountClient;
 import com.banck.credit.client.CustomerClient;
 import com.banck.credit.enums.CreditType;
+import com.banck.credit.enums.CustomerType;
 import com.banck.credit.model.Credit;
 import com.banck.credit.repository.CreditRepository;
 import com.banck.credit.service.CreditService;
@@ -34,8 +35,7 @@ public class CreditServiceImpl implements CreditService {
 
         return customerClient.getCustomerById(credit.getCustomerId())
                 .flatMap(customer -> {
-
-                    if ("PERSONAL".equals(customer.getCustomerType())
+                    if (customer.getCustomerType() == CustomerType.PERSONAL
                             && credit.getCreditType() == CreditType.PERSONAL) {
 
                         return repository

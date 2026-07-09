@@ -48,15 +48,6 @@ public class CreditController {
         return service.findByCustomerId(customerId);
     }
 
-    @PostMapping("/{creditId}/payments")
-    public Mono<ResponseEntity<Credit>> pay(
-            @PathVariable String creditId,
-            @RequestParam BigDecimal amount) {
-
-        return service.pay(creditId, amount)
-                .map(ResponseEntity::ok);
-    }
-
     @PostMapping("/{creditId}/consume")
     public Mono<ResponseEntity<Credit>> consume(
             @PathVariable String creditId,
