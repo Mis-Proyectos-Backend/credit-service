@@ -7,6 +7,7 @@ import com.banck.credit.enums.CustomerType;
 import com.banck.credit.model.Credit;
 import com.banck.credit.repository.CreditRepository;
 import com.banck.credit.service.CreditService;
+import org.springframework.data.redis.core.ReactiveRedisTemplate;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -20,14 +21,17 @@ public class CreditServiceImpl implements CreditService {
     private final CreditRepository repository;
     private final CustomerClient customerClient;
     private final AccountClient accountClient;
+    private final ReactiveRedisTemplate<String, Credit> redisTemplate;
 
 
     public CreditServiceImpl(CreditRepository repository,
                              CustomerClient customerClient,
-                             AccountClient accountClient) {
+                             AccountClient accountClient,
+                             ReactiveRedisTemplate<String, Credit> redisTemplate) {
         this.repository = repository;
         this.customerClient = customerClient;
         this.accountClient = accountClient;
+        this.redisTemplate = redisTemplate;
     }
 
     @Override
@@ -60,13 +64,16 @@ public class CreditServiceImpl implements CreditService {
     private Mono<Credit> saveCredit(Credit credit) {
         credit.setCreatedAt(LocalDate.now());
         if (credit.getCreditType() == CreditType.CREDIT_CARD) {
-            // La tarjeta inicia sin deuda
             credit.setOutstandingBalance(BigDecimal.ZERO);
         } else {
-            // Los préstamos inician debiendo el monto otorgado
             credit.setOutstandingBalance(credit.getCreditLimit());
         }
-        return repository.save(credit);
+        return repository.save(credit)
+                .flatMap(saved ->
+                        redisTemplate.opsForValue()
+                                .set("credit:" + saved.getId(), saved)
+                                .thenReturn(saved)
+                );
     }
 
     @Override
@@ -76,7 +83,22 @@ public class CreditServiceImpl implements CreditService {
 
     @Override
     public Mono<Credit> findById(String id) {
-        return repository.findById(id);
+
+        String key = "credit:" + id;
+
+        return redisTemplate.opsForValue()
+                .get(key)
+                .switchIfEmpty(
+                        repository.findById(id)
+                                .switchIfEmpty(
+                                        Mono.error(new RuntimeException("Credit not found"))
+                                )
+                                .flatMap(credit ->
+                                        redisTemplate.opsForValue()
+                                                .set(key, credit)
+                                                .thenReturn(credit)
+                                )
+                );
     }
 
     @Override
@@ -116,13 +138,23 @@ public class CreditServiceImpl implements CreditService {
                     credit.setOutstandingBalance(
                             credit.getOutstandingBalance().add(transactionAmount));
 
-                    return repository.save(credit);
+                    return repository.save(credit)
+                            .flatMap(saved ->
+                                    redisTemplate.delete("credit:" + saved.getId())
+                                            .thenReturn(saved)
+                            );
                 });
     }
 
     @Override
     public Mono<Void> delete(String id) {
-        return repository.deleteById(id);
+        return repository.findById(id)
+                .switchIfEmpty(Mono.error(new RuntimeException("Credit not found")))
+                .flatMap(credit ->
+                        repository.delete(credit)
+                                .then(redisTemplate.delete("credit:" + credit.getId()))
+                                .then()
+                );
     }
 
     @Override
@@ -175,13 +207,13 @@ public class CreditServiceImpl implements CreditService {
 
     private Mono<Credit> applyPayment(Credit credit,
                                       BigDecimal amount) {
-
         BigDecimal newBalance =
-                credit.getOutstandingBalance()
-                        .subtract(amount);
-
+                credit.getOutstandingBalance().subtract(amount);
         credit.setOutstandingBalance(newBalance);
-
-        return repository.save(credit);
+        return repository.save(credit)
+                .flatMap(saved ->
+                        redisTemplate.delete("credit:" + saved.getId())
+                                .thenReturn(saved)
+                );
     }
 }

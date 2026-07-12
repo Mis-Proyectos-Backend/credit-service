@@ -10,6 +10,8 @@ import com.banck.credit.repository.CreditRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
+import org.springframework.data.redis.core.ReactiveRedisTemplate;
+import org.springframework.data.redis.core.ReactiveValueOperations;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
@@ -17,6 +19,7 @@ import reactor.test.StepVerifier;
 import java.math.BigDecimal;
 
 import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 
@@ -26,6 +29,8 @@ class CreditServiceImplTest {
     private CustomerClient customerClient;
     private AccountClient accountClient;
     private CreditServiceImpl service;
+    private ReactiveRedisTemplate<String, Credit> redisTemplate;
+    private ReactiveValueOperations<String, Credit> valueOperations;
 
     @BeforeEach
     void setUp() {
@@ -33,10 +38,17 @@ class CreditServiceImplTest {
         repository = Mockito.mock(CreditRepository.class);
         customerClient = Mockito.mock(CustomerClient.class);
         accountClient = Mockito.mock(AccountClient.class);
+
+        redisTemplate = Mockito.mock(ReactiveRedisTemplate.class);
+        valueOperations = Mockito.mock(ReactiveValueOperations.class);
+
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+
         service = new CreditServiceImpl(
                 repository,
                 customerClient,
-                accountClient
+                accountClient,
+                redisTemplate
         );
     }
 
@@ -61,6 +73,8 @@ class CreditServiceImplTest {
                 .thenAnswer(
                         i -> Mono.just(i.getArgument(0))
                 );
+        when(valueOperations.set(anyString(), any(Credit.class)))
+                .thenReturn(Mono.just(true));
         StepVerifier.create(service.create(credit))
                 .expectNextMatches(result ->
                         result.getOutstandingBalance()
@@ -107,11 +121,17 @@ class CreditServiceImplTest {
 
     @Test
     void findById_shouldReturnCredit() {
+
         Credit credit = Credit.builder()
                 .id("cr1")
                 .build();
-        when(repository.findById("cr1"))
+
+        when(valueOperations.get("credit:cr1"))
                 .thenReturn(Mono.just(credit));
+
+        when(repository.findById("cr1"))
+                .thenReturn(Mono.empty());
+
         StepVerifier.create(service.findById("cr1"))
                 .expectNext(credit)
                 .verifyComplete();
@@ -131,6 +151,8 @@ class CreditServiceImplTest {
                 .thenAnswer(
                         i -> Mono.just(i.getArgument(0))
                 );
+        when(redisTemplate.delete("credit:cr1"))
+                .thenReturn(Mono.just(1L));
         StepVerifier.create(
                         service.consume(
                                 "cr1",
@@ -211,6 +233,8 @@ class CreditServiceImplTest {
                 .thenAnswer(
                         i -> Mono.just(i.getArgument(0))
                 );
+        when(redisTemplate.delete("credit:cr1"))
+                .thenReturn(Mono.just(1L));
         StepVerifier.create(
                         service.payCredit(
                                 "cr1",
@@ -227,12 +251,47 @@ class CreditServiceImplTest {
 
     @Test
     void delete_shouldComplete() {
-        when(repository.deleteById("cr1"))
+
+        Credit credit = Credit.builder()
+                .id("cr1")
+                .build();
+
+        when(repository.findById("cr1"))
+                .thenReturn(Mono.just(credit));
+
+        when(repository.delete(credit))
                 .thenReturn(Mono.empty());
-        StepVerifier.create(
-                        service.delete("cr1")
-                )
+
+        when(redisTemplate.delete("credit:cr1"))
+                .thenReturn(Mono.just(1L));
+
+        StepVerifier.create(service.delete("cr1"))
                 .verifyComplete();
+
+        verify(repository).findById("cr1");
+        verify(repository).delete(credit);
+        verify(redisTemplate).delete("credit:cr1");
+    }
+
+    @Test
+    void findById_shouldReturnCreditFromCache() {
+
+        Credit credit = Credit.builder()
+                .id("cr1")
+                .build();
+
+        when(valueOperations.get("credit:cr1"))
+                .thenReturn(Mono.just(credit));
+
+        // Necesario por el switchIfEmpty
+        when(repository.findById("cr1"))
+                .thenReturn(Mono.empty());
+
+        StepVerifier.create(service.findById("cr1"))
+                .expectNext(credit)
+                .verifyComplete();
+
+        verify(valueOperations).get("credit:cr1");
     }
 
 }
