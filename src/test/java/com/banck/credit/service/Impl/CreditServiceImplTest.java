@@ -2,7 +2,9 @@ package com.banck.credit.service.Impl;
 
 import com.banck.credit.client.AccountClient;
 import com.banck.credit.client.CustomerClient;
+import com.banck.credit.client.dto.Account;
 import com.banck.credit.client.dto.Customer;
+import com.banck.credit.config.CreditProperties;
 import com.banck.credit.enums.CreditType;
 import com.banck.credit.enums.CustomerType;
 import com.banck.credit.model.Credit;
@@ -17,10 +19,10 @@ import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 
 import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 
 class CreditServiceImplTest {
@@ -29,8 +31,12 @@ class CreditServiceImplTest {
     private CustomerClient customerClient;
     private AccountClient accountClient;
     private CreditServiceImpl service;
+
     private ReactiveRedisTemplate<String, Credit> redisTemplate;
     private ReactiveValueOperations<String, Credit> valueOperations;
+
+    private CreditProperties creditProperties;
+
 
     @BeforeEach
     void setUp() {
@@ -42,15 +48,21 @@ class CreditServiceImplTest {
         redisTemplate = Mockito.mock(ReactiveRedisTemplate.class);
         valueOperations = Mockito.mock(ReactiveValueOperations.class);
 
-        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        creditProperties = Mockito.mock(CreditProperties.class);
 
+        when(redisTemplate.opsForValue())
+                .thenReturn(valueOperations);
+        when(creditProperties.getDueDays())
+                .thenReturn(30);
         service = new CreditServiceImpl(
                 repository,
                 customerClient,
                 accountClient,
-                redisTemplate
+                redisTemplate,
+                creditProperties
         );
     }
+
 
     @Test
     void create_personalCredit_shouldSaveCredit() {
@@ -60,25 +72,32 @@ class CreditServiceImplTest {
                 .creditLimit(BigDecimal.valueOf(1000))
                 .build();
         Customer customer = Customer.builder()
-                .customerType(CustomerType.valueOf("PERSONAL"))
+                .customerType(CustomerType.PERSONAL)
                 .build();
+        when(repository.findByCustomerId("c1"))
+                .thenReturn(Flux.empty());
+
         when(customerClient.getCustomerById("c1"))
                 .thenReturn(Mono.just(customer));
+
         when(repository.existsByCustomerIdAndCreditType(
                 "c1",
-                CreditType.PERSONAL
-        ))
+                CreditType.PERSONAL))
                 .thenReturn(Mono.just(false));
+
         when(repository.save(any(Credit.class)))
-                .thenAnswer(
-                        i -> Mono.just(i.getArgument(0))
-                );
+                .thenAnswer(i -> Mono.just(i.getArgument(0)));
+
         when(valueOperations.set(anyString(), any(Credit.class)))
                 .thenReturn(Mono.just(true));
+
         StepVerifier.create(service.create(credit))
                 .expectNextMatches(result ->
                         result.getOutstandingBalance()
                                 .equals(BigDecimal.valueOf(1000))
+                                &&
+                                result.getDueDate()
+                                        .equals(LocalDate.now().plusDays(30))
                 )
                 .verifyComplete();
     }
@@ -90,7 +109,7 @@ class CreditServiceImplTest {
                 .creditType(CreditType.PERSONAL)
                 .build();
         Customer customer = Customer.builder()
-                .customerType(CustomerType.valueOf("PERSONAL"))
+                .customerType(CustomerType.PERSONAL)
                 .build();
         when(customerClient.getCustomerById("c1"))
                 .thenReturn(Mono.just(customer));
@@ -99,6 +118,8 @@ class CreditServiceImplTest {
                 CreditType.PERSONAL
         ))
                 .thenReturn(Mono.just(true));
+        when(repository.findByCustomerId("c1"))
+                .thenReturn(Flux.empty());
         StepVerifier.create(service.create(credit))
                 .expectErrorMessage(
                         "Customer already has a personal credit"
@@ -128,7 +149,7 @@ class CreditServiceImplTest {
 
         when(valueOperations.get("credit:cr1"))
                 .thenReturn(Mono.just(credit));
-
+        // Aunque no debería usarse, debe devolver un Mono y no null
         when(repository.findById("cr1"))
                 .thenReturn(Mono.empty());
 
@@ -148,8 +169,8 @@ class CreditServiceImplTest {
         when(repository.findById("cr1"))
                 .thenReturn(Mono.just(credit));
         when(repository.save(any(Credit.class)))
-                .thenAnswer(
-                        i -> Mono.just(i.getArgument(0))
+                .thenAnswer(i ->
+                        Mono.just(i.getArgument(0))
                 );
         when(redisTemplate.delete("credit:cr1"))
                 .thenReturn(Mono.just(1L));
@@ -157,7 +178,8 @@ class CreditServiceImplTest {
                         service.consume(
                                 "cr1",
                                 BigDecimal.valueOf(100)
-                        ))
+                        )
+                )
 
                 .expectNextMatches(result ->
                         result.getOutstandingBalance()
@@ -172,7 +194,8 @@ class CreditServiceImplTest {
                         service.consume(
                                 "cr1",
                                 BigDecimal.ZERO
-                        ))
+                        )
+                )
 
                 .expectErrorMessage(
                         "Amount must be greater than zero"
@@ -192,7 +215,8 @@ class CreditServiceImplTest {
                         service.consume(
                                 "cr1",
                                 BigDecimal.valueOf(100)
-                        ))
+                        )
+                )
 
                 .expectErrorMessage(
                         "Only credit cards allow consumption"
@@ -208,10 +232,12 @@ class CreditServiceImplTest {
                 .build();
         when(repository.findById("cr1"))
                 .thenReturn(Mono.just(credit));
-        when(accountClient.getAccountsByCustomer("a1"))
+
+
+        when(accountClient.getAccountById("a1"))
                 .thenReturn(
-                        Flux.just(
-                                com.banck.credit.client.dto.Account.builder()
+                        Mono.just(
+                                Account.builder()
                                         .id("a1")
                                         .balance(BigDecimal.valueOf(1000))
                                         .build()
@@ -223,15 +249,15 @@ class CreditServiceImplTest {
         ))
                 .thenReturn(
                         Mono.just(
-                                com.banck.credit.client.dto.Account.builder()
+                                Account.builder()
                                         .id("a1")
                                         .balance(BigDecimal.valueOf(900))
                                         .build()
                         )
                 );
         when(repository.save(any(Credit.class)))
-                .thenAnswer(
-                        i -> Mono.just(i.getArgument(0))
+                .thenAnswer(i ->
+                        Mono.just(i.getArgument(0))
                 );
         when(redisTemplate.delete("credit:cr1"))
                 .thenReturn(Mono.just(1L));
@@ -240,7 +266,8 @@ class CreditServiceImplTest {
                                 "cr1",
                                 "a1",
                                 BigDecimal.valueOf(100)
-                        ))
+                        )
+                )
 
                 .expectNextMatches(result ->
                         result.getOutstandingBalance()
@@ -250,48 +277,268 @@ class CreditServiceImplTest {
     }
 
     @Test
-    void delete_shouldComplete() {
+    void payCredit_whenAmountExceedsDebt_shouldFail() {
+        Credit credit = Credit.builder()
+                .id("cr1")
+                .outstandingBalance(BigDecimal.valueOf(100))
+                .build();
+        when(repository.findById("cr1"))
+                .thenReturn(Mono.just(credit));
+        when(accountClient.getAccountById("a1"))
+                .thenReturn(
+                        Mono.just(
+                                Account.builder()
+                                        .id("a1")
+                                        .balance(BigDecimal.valueOf(1000))
+                                        .build()
+                        )
+                );
+        StepVerifier.create(
+                        service.payCredit(
+                                "cr1",
+                                "a1",
+                                BigDecimal.valueOf(200)
+                        )
+                )
+                .expectErrorMessage(
+                        "Payment exceeds debt"
+                )
+                .verify();
+    }
 
+    @Test
+    void delete_shouldComplete() {
         Credit credit = Credit.builder()
                 .id("cr1")
                 .build();
-
         when(repository.findById("cr1"))
                 .thenReturn(Mono.just(credit));
-
         when(repository.delete(credit))
                 .thenReturn(Mono.empty());
-
         when(redisTemplate.delete("credit:cr1"))
                 .thenReturn(Mono.just(1L));
-
         StepVerifier.create(service.delete("cr1"))
                 .verifyComplete();
 
-        verify(repository).findById("cr1");
-        verify(repository).delete(credit);
-        verify(redisTemplate).delete("credit:cr1");
+
+        verify(repository)
+                .delete(credit);
+
+
+        verify(redisTemplate)
+                .delete("credit:cr1");
     }
 
     @Test
     void findById_shouldReturnCreditFromCache() {
-
         Credit credit = Credit.builder()
                 .id("cr1")
                 .build();
-
         when(valueOperations.get("credit:cr1"))
                 .thenReturn(Mono.just(credit));
-
-        // Necesario por el switchIfEmpty
+        // Aunque no debería usarse, debe devolver un Mono y no null
         when(repository.findById("cr1"))
                 .thenReturn(Mono.empty());
 
         StepVerifier.create(service.findById("cr1"))
                 .expectNext(credit)
                 .verifyComplete();
-
-        verify(valueOperations).get("credit:cr1");
+        verify(valueOperations)
+                .get("credit:cr1");
     }
 
+    @Test
+    void hasOverdueDebt_whenCreditIsExpired_shouldReturnTrue() {
+
+
+        Credit credit = Credit.builder()
+                .customerId("c1")
+                .outstandingBalance(BigDecimal.valueOf(500))
+                .dueDate(LocalDate.now().minusDays(5))
+                .build();
+        when(repository.findByCustomerId("c1"))
+                .thenReturn(Flux.just(credit));
+        StepVerifier.create(
+                        service.hasOverdueDebt("c1")
+                )
+                .expectNext(true)
+                .verifyComplete();
+    }
+
+    @Test
+    void hasOverdueDebt_whenCreditIsNotExpired_shouldReturnFalse() {
+        Credit credit = Credit.builder()
+                .customerId("c1")
+                .outstandingBalance(BigDecimal.valueOf(500))
+                .dueDate(LocalDate.now().plusDays(10))
+                .build();
+        when(repository.findByCustomerId("c1"))
+                .thenReturn(Flux.just(credit));
+        StepVerifier.create(
+                        service.hasOverdueDebt("c1")
+                )
+                .expectNext(false)
+                .verifyComplete();
+    }
+
+    @Test
+    void create_whenCustomerHasOverdueDebt_shouldFail() {
+
+        Credit credit = Credit.builder()
+                .customerId("c1")
+                .creditType(CreditType.PERSONAL)
+                .creditLimit(BigDecimal.valueOf(1000))
+                .build();
+
+        Credit overdue = Credit.builder()
+                .customerId("c1")
+                .outstandingBalance(BigDecimal.valueOf(500))
+                .dueDate(LocalDate.now().minusDays(1))
+                .build();
+
+        when(repository.findByCustomerId("c1"))
+                .thenReturn(Flux.just(overdue));
+        when(customerClient.getCustomerById("c1"))
+                .thenReturn(Mono.just(Customer.builder().build()));
+
+        StepVerifier.create(service.create(credit))
+                .expectErrorMessage("Customer has overdue credit debt")
+                .verify();
+
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    void findById_whenCacheIsEmpty_shouldLoadFromRepository() {
+
+        Credit credit = Credit.builder()
+                .id("cr1")
+                .build();
+
+        when(valueOperations.get("credit:cr1"))
+                .thenReturn(Mono.empty());
+
+        when(repository.findById("cr1"))
+                .thenReturn(Mono.just(credit));
+
+        when(valueOperations.set("credit:cr1", credit))
+                .thenReturn(Mono.just(true));
+
+        StepVerifier.create(service.findById("cr1"))
+                .expectNext(credit)
+                .verifyComplete();
+
+        verify(repository).findById("cr1");
+        verify(valueOperations).set("credit:cr1", credit);
+    }
+    @Test
+    void findById_whenCreditDoesNotExist_shouldFail() {
+
+        when(valueOperations.get("credit:cr1"))
+                .thenReturn(Mono.empty());
+
+        when(repository.findById("cr1"))
+                .thenReturn(Mono.empty());
+
+        StepVerifier.create(service.findById("cr1"))
+                .expectErrorMessage("Credit not found")
+                .verify();
+    }
+    @Test
+    void consume_whenCreditLimitExceeded_shouldFail() {
+
+        Credit credit = Credit.builder()
+                .id("cr1")
+                .creditType(CreditType.CREDIT_CARD)
+                .creditLimit(BigDecimal.valueOf(1000))
+                .outstandingBalance(BigDecimal.valueOf(950))
+                .build();
+
+        when(repository.findById("cr1"))
+                .thenReturn(Mono.just(credit));
+
+        StepVerifier.create(
+                        service.consume("cr1", BigDecimal.valueOf(100)))
+                .expectErrorMessage("Credit limit exceeded")
+                .verify();
+    }
+
+    @Test
+    void consume_whenCreditNotFound_shouldFail() {
+
+        when(repository.findById("cr1"))
+                .thenReturn(Mono.empty());
+
+        StepVerifier.create(
+                        service.consume("cr1", BigDecimal.valueOf(100)))
+                .expectErrorMessage("Credit not found")
+                .verify();
+    }
+    @Test
+    void payCredit_whenAccountHasInsufficientBalance_shouldFail() {
+
+        Credit credit = Credit.builder()
+                .id("cr1")
+                .outstandingBalance(BigDecimal.valueOf(500))
+                .build();
+
+        when(repository.findById("cr1"))
+                .thenReturn(Mono.just(credit));
+
+        when(accountClient.getAccountById("a1"))
+                .thenReturn(
+                        Mono.just(
+                                Account.builder()
+                                        .id("a1")
+                                        .balance(BigDecimal.valueOf(50))
+                                        .build()
+                        )
+                );
+
+        StepVerifier.create(
+                        service.payCredit(
+                                "cr1",
+                                "a1",
+                                BigDecimal.valueOf(100)
+                        ))
+                .expectErrorMessage("Insufficient balance")
+                .verify();
+    }
+    @Test
+    void payCredit_whenCreditNotFound_shouldFail() {
+
+        when(repository.findById("cr1"))
+                .thenReturn(Mono.empty());
+
+        StepVerifier.create(
+                        service.payCredit(
+                                "cr1",
+                                "a1",
+                                BigDecimal.valueOf(100)
+                        ))
+                .expectErrorMessage("Credit not found")
+                .verify();
+    }
+    @Test
+    void delete_whenCreditNotFound_shouldFail() {
+
+        when(repository.findById("cr1"))
+                .thenReturn(Mono.empty());
+
+        StepVerifier.create(service.delete("cr1"))
+                .expectErrorMessage("Credit not found")
+                .verify();
+
+        verify(repository, never()).delete(any());
+    }
+    @Test
+    void hasOverdueDebt_whenCustomerHasNoCredits_shouldReturnFalse() {
+
+        when(repository.findByCustomerId("c1"))
+                .thenReturn(Flux.empty());
+
+        StepVerifier.create(service.hasOverdueDebt("c1"))
+                .expectNext(false)
+                .verifyComplete();
+    }
 }

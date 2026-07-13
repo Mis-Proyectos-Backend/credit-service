@@ -50,13 +50,11 @@ class AccountClientTest {
 
     @Test
     void getAccountsByCustomer_shouldReturnAccounts() {
-
         Account account = Account.builder()
                 .id("a1")
                 .customerId("c1")
                 .balance(BigDecimal.valueOf(1000))
                 .build();
-
         doReturn(requestHeadersUriSpec).when(webClient).get();
 
         doReturn(requestHeadersSpec)
@@ -77,16 +75,13 @@ class AccountClientTest {
 
     @Test
     void withdraw_shouldReturnAccount() {
-
         Account account = Account.builder()
                 .id("a1")
                 .balance(BigDecimal.valueOf(900))
                 .build();
 
         doReturn(requestBodyUriSpec).when(webClient).post();
-
         doAnswer(invocation -> {
-
             @SuppressWarnings("unchecked")
             java.util.function.Function<
                     org.springframework.web.util.UriBuilder,
@@ -100,9 +95,7 @@ class AccountClientTest {
                     "http://account-service/accounts/a1/withdraw?amount=100",
                     uri.toString()
             );
-
             return requestBodyUriSpec;
-
         }).when(requestBodyUriSpec)
                 .uri(any(java.util.function.Function.class));
 
@@ -123,7 +116,6 @@ class AccountClientTest {
 
     @Test
     void fallbackAccounts_shouldReturnEmptyFlux() {
-
         StepVerifier.create(
                         accountClient.fallbackAccounts(
                                 "c1",
@@ -133,7 +125,6 @@ class AccountClientTest {
 
     @Test
     void fallbackWithdraw_shouldReturnError() {
-
         StepVerifier.create(
                         accountClient.fallbackWithdraw(
                                 "a1",
@@ -143,5 +134,27 @@ class AccountClientTest {
                         ex instanceof RuntimeException
                                 && ex.getMessage().equals("Account Service unavailable"))
                 .verify();
+    }
+
+    @Test
+    void getAccountById_shouldReturnAccount() {
+        Account account = Account.builder()
+                .id("a1")
+                .balance(BigDecimal.valueOf(1000))
+                .build();
+
+        when(webClient.get()).thenReturn(requestHeadersUriSpec);
+        when(requestHeadersUriSpec.uri(
+                "http://account-service/accounts/{id}",
+                "a1"))
+                .thenReturn(requestHeadersSpec);
+        when(requestHeadersSpec.retrieve())
+                .thenReturn(responseSpec);
+        when(responseSpec.bodyToMono(Account.class))
+                .thenReturn(Mono.just(account));
+
+        StepVerifier.create(accountClient.getAccountById("a1"))
+                .expectNext(account)
+                .verifyComplete();
     }
 }

@@ -26,6 +26,14 @@ public class AccountClient {
                 .bodyToFlux(Account.class);
     }
 
+    @CircuitBreaker(name = "accountService", fallbackMethod = "fallbackAccounts")
+    public Mono<Account> getAccountById(String accountId) {
+        return webClient.get()
+                .uri("http://account-service/accounts/{id}", accountId)
+                .retrieve()
+                .bodyToMono(Account.class);
+    }
+
     @CircuitBreaker(name = "accountService", fallbackMethod = "fallbackWithdraw")
     public Mono<Account> withdraw(String accountId, BigDecimal amount) {
         return webClient.post()

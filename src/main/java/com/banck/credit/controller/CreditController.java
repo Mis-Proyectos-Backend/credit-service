@@ -73,4 +73,10 @@ public class CreditController {
     public Mono<Void> delete(@PathVariable String id) {
         return service.delete(id);
     }
+
+    @GetMapping("/customers/{customerId}/overdue")
+    public Mono<Boolean> hasOverdueDebt(
+            @PathVariable String customerId) {
+        return service.hasOverdueDebt(customerId);
+    }
 }

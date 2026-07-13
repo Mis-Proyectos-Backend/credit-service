@@ -20,4 +20,6 @@ public interface CreditService {
 
     Mono<Void> delete(String id);
 
-    Mono<Credit> payCredit(String creditId, String accountId, BigDecimal amount);}
+    Mono<Credit> payCredit(String creditId, String accountId, BigDecimal amount);
+    Mono<Boolean> hasOverdueDebt(String customerId);
+}
