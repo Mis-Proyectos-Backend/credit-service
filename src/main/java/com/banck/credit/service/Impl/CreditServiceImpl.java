@@ -2,9 +2,11 @@ package com.banck.credit.service.Impl;
 
 import com.banck.credit.client.AccountClient;
 import com.banck.credit.client.CustomerClient;
+import com.banck.credit.client.dto.WithdrawRequest;
 import com.banck.credit.config.CreditProperties;
 import com.banck.credit.enums.CreditType;
 import com.banck.credit.enums.CustomerType;
+import com.banck.credit.enums.PaymentMethod;
 import com.banck.credit.model.Credit;
 import com.banck.credit.repository.CreditRepository;
 import com.banck.credit.service.CreditService;
@@ -228,10 +230,15 @@ public class CreditServiceImpl implements CreditService {
                                         BigDecimal amount,
                                         Credit credit) {
 
-        return accountClient.withdraw(accountId, amount)
+        WithdrawRequest request = WithdrawRequest.builder()
+                .amount(amount)
+                .paymentMethod(PaymentMethod.CREDIT_PAYMENT)
+                .build();
 
+        return accountClient.withdraw(accountId, request)
                 .flatMap(account -> applyPayment(credit, amount));
     }
+
 
     private Mono<Credit> applyPayment(Credit credit, BigDecimal amount) {
         BigDecimal newBalance =

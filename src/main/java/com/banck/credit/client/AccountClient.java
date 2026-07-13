@@ -1,6 +1,7 @@
 package com.banck.credit.client;
 
 import com.banck.credit.client.dto.Account;
+import com.banck.credit.client.dto.WithdrawRequest;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -35,14 +36,15 @@ public class AccountClient {
     }
 
     @CircuitBreaker(name = "accountService", fallbackMethod = "fallbackWithdraw")
-    public Mono<Account> withdraw(String accountId, BigDecimal amount) {
+    public Mono<Account> withdraw(String accountId, WithdrawRequest request) {
+
         return webClient.post()
                 .uri(uriBuilder -> uriBuilder
                         .scheme("http")
                         .host("account-service")
                         .path("/accounts/{id}/withdraw")
-                        .queryParam("amount", amount)
                         .build(accountId))
+                .bodyValue(request)
                 .retrieve()
                 .bodyToMono(Account.class);
     }

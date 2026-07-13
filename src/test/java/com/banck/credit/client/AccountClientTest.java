@@ -1,18 +1,25 @@
 package com.banck.credit.client;
 
 import com.banck.credit.client.dto.Account;
+import com.banck.credit.client.dto.WithdrawRequest;
+import com.banck.credit.enums.PaymentMethod;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.util.DefaultUriBuilderFactory;
+import org.springframework.web.util.UriBuilder;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
 import java.math.BigDecimal;
+import java.net.URI;
+import java.util.function.Function;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
@@ -72,43 +79,50 @@ class AccountClientTest {
                 .expectNext(account)
                 .verifyComplete();
     }
-
     @Test
     void withdraw_shouldReturnAccount() {
+
         Account account = Account.builder()
                 .id("a1")
                 .balance(BigDecimal.valueOf(900))
                 .build();
 
-        doReturn(requestBodyUriSpec).when(webClient).post();
+        WithdrawRequest request = WithdrawRequest.builder()
+                .amount(BigDecimal.valueOf(100))
+                .paymentMethod(PaymentMethod.CREDIT_PAYMENT)
+                .build();
+
+        doReturn(requestBodyUriSpec)
+                .when(webClient)
+                .post();
+
         doAnswer(invocation -> {
+
             @SuppressWarnings("unchecked")
-            java.util.function.Function<
-                    org.springframework.web.util.UriBuilder,
-                    java.net.URI> function = invocation.getArgument(0);
+            Function<UriBuilder, URI> function =
+                    invocation.getArgument(0);
 
-            java.net.URI uri = function.apply(
-                    new org.springframework.web.util.DefaultUriBuilderFactory()
-                            .builder());
+            URI uri = function.apply(
+                    new DefaultUriBuilderFactory().builder());
 
-            org.junit.jupiter.api.Assertions.assertEquals(
-                    "http://account-service/accounts/a1/withdraw?amount=100",
-                    uri.toString()
-            );
+            assertEquals("http://account-service/accounts/a1/withdraw",
+                    uri.toString());
+
             return requestBodyUriSpec;
-        }).when(requestBodyUriSpec)
-                .uri(any(java.util.function.Function.class));
 
-        when(requestBodyUriSpec.retrieve())
+        }).when(requestBodyUriSpec)
+                .uri(any(Function.class));
+
+        when(requestBodyUriSpec.bodyValue(any(WithdrawRequest.class)))
+                .thenReturn(requestHeadersSpec);
+
+        when(requestHeadersSpec.retrieve())
                 .thenReturn(responseSpec);
 
         when(responseSpec.bodyToMono(Account.class))
                 .thenReturn(Mono.just(account));
 
-        StepVerifier.create(
-                        accountClient.withdraw(
-                                "a1",
-                                BigDecimal.valueOf(100)))
+        StepVerifier.create(accountClient.withdraw("a1", request))
                 .expectNext(account)
                 .verifyComplete();
     }

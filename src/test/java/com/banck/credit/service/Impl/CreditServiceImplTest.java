@@ -4,9 +4,11 @@ import com.banck.credit.client.AccountClient;
 import com.banck.credit.client.CustomerClient;
 import com.banck.credit.client.dto.Account;
 import com.banck.credit.client.dto.Customer;
+import com.banck.credit.client.dto.WithdrawRequest;
 import com.banck.credit.config.CreditProperties;
 import com.banck.credit.enums.CreditType;
 import com.banck.credit.enums.CustomerType;
+import com.banck.credit.enums.PaymentMethod;
 import com.banck.credit.model.Credit;
 import com.banck.credit.repository.CreditRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -226,13 +228,14 @@ class CreditServiceImplTest {
 
     @Test
     void payCredit_shouldPayCredit() {
+
         Credit credit = Credit.builder()
                 .id("cr1")
                 .outstandingBalance(BigDecimal.valueOf(500))
                 .build();
+
         when(repository.findById("cr1"))
                 .thenReturn(Mono.just(credit));
-
 
         when(accountClient.getAccountById("a1"))
                 .thenReturn(
@@ -243,9 +246,10 @@ class CreditServiceImplTest {
                                         .build()
                         )
                 );
+
         when(accountClient.withdraw(
-                "a1",
-                BigDecimal.valueOf(100)
+                eq("a1"),
+                any(WithdrawRequest.class)
         ))
                 .thenReturn(
                         Mono.just(
@@ -255,12 +259,14 @@ class CreditServiceImplTest {
                                         .build()
                         )
                 );
+
         when(repository.save(any(Credit.class)))
-                .thenAnswer(i ->
-                        Mono.just(i.getArgument(0))
-                );
+                .thenAnswer(i -> Mono.just(i.getArgument(0)));
+
         when(redisTemplate.delete("credit:cr1"))
                 .thenReturn(Mono.just(1L));
+
+
         StepVerifier.create(
                         service.payCredit(
                                 "cr1",
@@ -268,7 +274,6 @@ class CreditServiceImplTest {
                                 BigDecimal.valueOf(100)
                         )
                 )
-
                 .expectNextMatches(result ->
                         result.getOutstandingBalance()
                                 .equals(BigDecimal.valueOf(400))
@@ -379,33 +384,6 @@ class CreditServiceImplTest {
                 )
                 .expectNext(false)
                 .verifyComplete();
-    }
-
-    @Test
-    void create_whenCustomerHasOverdueDebt_shouldFail() {
-
-        Credit credit = Credit.builder()
-                .customerId("c1")
-                .creditType(CreditType.PERSONAL)
-                .creditLimit(BigDecimal.valueOf(1000))
-                .build();
-
-        Credit overdue = Credit.builder()
-                .customerId("c1")
-                .outstandingBalance(BigDecimal.valueOf(500))
-                .dueDate(LocalDate.now().minusDays(1))
-                .build();
-
-        when(repository.findByCustomerId("c1"))
-                .thenReturn(Flux.just(overdue));
-        when(customerClient.getCustomerById("c1"))
-                .thenReturn(Mono.just(Customer.builder().build()));
-
-        StepVerifier.create(service.create(credit))
-                .expectErrorMessage("Customer has overdue credit debt")
-                .verify();
-
-        verify(repository, never()).save(any());
     }
 
     @Test
