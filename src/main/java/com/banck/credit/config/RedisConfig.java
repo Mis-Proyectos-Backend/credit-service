@@ -1,6 +1,9 @@
 package com.banck.credit.config;
 
 import com.banck.credit.model.Credit;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.connection.ReactiveRedisConnectionFactory;
@@ -16,8 +19,13 @@ public class RedisConfig {
     public ReactiveRedisTemplate<String, Credit> reactiveRedisTemplate(
             ReactiveRedisConnectionFactory factory) {
 
+        ObjectMapper mapper = new ObjectMapper();
+
+        mapper.registerModule(new JavaTimeModule());
+        mapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+
         Jackson2JsonRedisSerializer<Credit> serializer =
-                new Jackson2JsonRedisSerializer<>(Credit.class);
+                new Jackson2JsonRedisSerializer<>(mapper, Credit.class);
 
         RedisSerializationContext<String, Credit> context =
                 RedisSerializationContext

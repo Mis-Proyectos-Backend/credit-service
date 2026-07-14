@@ -11,7 +11,10 @@ import com.banck.credit.model.Credit;
 import com.banck.credit.repository.CreditRepository;
 import com.banck.credit.service.CreditService;
 import org.springframework.data.redis.core.ReactiveRedisTemplate;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
+import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
@@ -58,8 +61,7 @@ public class CreditServiceImpl implements CreditService {
                                 .flatMap(exists -> {
 
                                     if (exists) {
-                                        return Mono.error(new RuntimeException(
-                                                "Customer already has a personal credit"));
+                                        return Mono.error(new ResponseStatusException(HttpStatus.CONFLICT, "El cliente ya tiene un crédito personal"));
                                     }
 
                                     return saveCredit(credit);
@@ -72,7 +74,6 @@ public class CreditServiceImpl implements CreditService {
 
     private Mono<Credit> saveCredit(Credit credit) {
         credit.setCreatedAt(LocalDate.now());
-        // ejemplo: vence en *** días
         credit.setDueDate(LocalDate.now().plusDays(creditProperties.getDueDays()));
         if (credit.getCreditType() == CreditType.CREDIT_CARD) {
             credit.setOutstandingBalance(BigDecimal.ZERO);
@@ -104,7 +105,7 @@ public class CreditServiceImpl implements CreditService {
                 .switchIfEmpty(
                         repository.findById(id)
                                 .switchIfEmpty(
-                                        Mono.error(new RuntimeException("Credit not found"))
+                                        Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND,"Credit not found"))
                                 )
                                 .flatMap(credit ->
                                         redisTemplate.opsForValue()
@@ -129,25 +130,20 @@ public class CreditServiceImpl implements CreditService {
 
         return repository.findById(creditId)
                 .switchIfEmpty(
-                        Mono.error(new RuntimeException("Credit not found")))
+                        Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND,"Credit not found")))
                 .flatMap(credit -> {
 
-                    // Solo las tarjetas de crédito permiten consumos
                     if (credit.getCreditType() != CreditType.CREDIT_CARD) {
-                        return Mono.error(new RuntimeException("Only credit cards allow consumption"));
+                        return Mono.error(new ResponseStatusException(HttpStatus.FORBIDDEN, "Solo las tarjetas de crédito permiten realizar consumos."));
                     }
 
-                    // Crédito disponible
                     BigDecimal available = credit.getCreditLimit()
                             .subtract(credit.getOutstandingBalance());
 
-                    // Validar que no exceda el límite
                     if (transactionAmount.compareTo(available) > 0) {
                         return Mono.error(
-                                new RuntimeException("Credit limit exceeded"));
-                    }
+                                new ResponseStatusException(HttpStatus.FORBIDDEN, "Credit limit exceeded"));                    }
 
-                    // Registrar el consumo (aumenta la deuda)
                     credit.setOutstandingBalance(
                             credit.getOutstandingBalance().add(transactionAmount));
 
@@ -162,7 +158,7 @@ public class CreditServiceImpl implements CreditService {
     @Override
     public Mono<Void> delete(String id) {
         return repository.findById(id)
-                .switchIfEmpty(Mono.error(new RuntimeException("Credit not found")))
+                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND,"Credit not found")))
                 .flatMap(credit ->
                         repository.delete(credit)
                                 .then(redisTemplate.delete("credit:" + credit.getId()))
@@ -174,19 +170,18 @@ public class CreditServiceImpl implements CreditService {
     public Mono<Credit> payCredit(String creditId, String accountId, BigDecimal amount) {
         if (amount.compareTo(BigDecimal.ZERO) <= 0) {
             return Mono.error(
-                    new IllegalArgumentException("Amount must be greater than zero"));
+                    new ResponseStatusException(HttpStatus.BAD_REQUEST, "Amount must be greater than zero"));
         }
         return repository.findById(creditId)
-                .switchIfEmpty(Mono.error(new RuntimeException("Credit not found")))
+                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Credit not found")))
                 .flatMap(credit ->
                         validatePayment(accountId, amount)
                                 .flatMap(valid -> {
                                     if (!valid) {
-                                        return Mono.error(new RuntimeException("Insufficient balance"));
+                                        return Mono.error(new ResponseStatusException(HttpStatus.BAD_REQUEST, "Insufficient balance"));
                                     }
-                                    // Validar que no pague más de la deuda
                                     if (amount.compareTo(credit.getOutstandingBalance()) > 0) {
-                                        return Mono.error(new RuntimeException("Payment exceeds debt"));
+                                        return Mono.error(new ResponseStatusException(HttpStatus.BAD_REQUEST, "Payment exceeds debt"));
                                     }
                                     return executePayment(
                                             accountId,
@@ -212,7 +207,7 @@ public class CreditServiceImpl implements CreditService {
         return hasOverdueDebt(customerId)
                 .flatMap(hasOverdue -> {
                     if (hasOverdue) {
-                        return Mono.error(new RuntimeException("Customer has overdue credit debt"));
+                        return Mono.error(new ResponseStatusException(HttpStatus.FORBIDDEN, "El cliente tiene una deuda de crédito vencida."));
                     }
                     return Mono.empty();
                 });
@@ -220,10 +215,17 @@ public class CreditServiceImpl implements CreditService {
 
     private Mono<Boolean> validatePayment(String accountId, BigDecimal amount) {
         return accountClient.getAccountById(accountId)
-                .map(account ->
-                        account.getBalance()
-                                .compareTo(amount) >= 0
-                );
+                .map(account -> account.getBalance().compareTo(amount) >= 0)
+                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "La cuenta no existe")))
+                .onErrorResume(WebClientResponseException.class, ex -> {
+                    if (ex.getStatusCode() == HttpStatus.BAD_REQUEST) {
+                        return Mono.error(new ResponseStatusException(HttpStatus.BAD_REQUEST, "Solicitud de cuenta inválida: " + ex.getMessage()));
+                    }
+                    if (ex.getStatusCode() == HttpStatus.NOT_FOUND) {
+                        return Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Cuenta no encontrada"));
+                    }
+                    return Mono.error(new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Error al comunicar con el servicio de cuentas"));
+                });
     }
 
     private Mono<Credit> executePayment(String accountId,
