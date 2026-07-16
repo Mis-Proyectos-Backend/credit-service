@@ -1,5 +1,6 @@
 package com.banck.credit.controller;
 
+import com.banck.credit.dto.PaymentRequest;
 import com.banck.credit.model.Credit;
 import com.banck.credit.service.CreditService;
 import org.springframework.http.ResponseEntity;
@@ -47,15 +48,6 @@ public class CreditController {
         return service.findByCustomerId(customerId);
     }
 
-    @PostMapping("/{creditId}/payments")
-    public Mono<ResponseEntity<Credit>> pay(
-            @PathVariable String creditId,
-            @RequestParam BigDecimal amount) {
-
-        return service.pay(creditId, amount)
-                .map(ResponseEntity::ok);
-    }
-
     @PostMapping("/{creditId}/consume")
     public Mono<ResponseEntity<Credit>> consume(
             @PathVariable String creditId,
@@ -65,8 +57,26 @@ public class CreditController {
                 .map(ResponseEntity::ok);
     }
 
+    @PostMapping("/{creditId}/payment")
+    public Mono<ResponseEntity<Credit>> payCredit(
+            @PathVariable String creditId,
+            @RequestBody PaymentRequest request) {
+
+        return service.payCredit(
+                        creditId,
+                        request.getAccountId(),
+                        request.getAmount())
+                .map(ResponseEntity::ok);
+    }
+
     @DeleteMapping("/{id}")
     public Mono<Void> delete(@PathVariable String id) {
         return service.delete(id);
+    }
+
+    @GetMapping("/customers/{customerId}/overdue")
+    public Mono<Boolean> hasOverdueDebt(
+            @PathVariable String customerId) {
+        return service.hasOverdueDebt(customerId);
     }
 }

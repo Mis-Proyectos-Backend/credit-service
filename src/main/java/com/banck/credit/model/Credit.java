@@ -35,4 +35,7 @@ public class Credit {
 
     // Fecha de creación
     private LocalDate createdAt;
+
+    // Fecha límite de pago
+    private LocalDate dueDate;
 }
