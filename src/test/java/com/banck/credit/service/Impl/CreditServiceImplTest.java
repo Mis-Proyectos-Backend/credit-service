@@ -16,6 +16,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.springframework.data.redis.core.ReactiveRedisTemplate;
 import org.springframework.data.redis.core.ReactiveValueOperations;
+import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
@@ -123,8 +124,9 @@ class CreditServiceImplTest {
         when(repository.findByCustomerId("c1"))
                 .thenReturn(Flux.empty());
         StepVerifier.create(service.create(credit))
-                .expectErrorMessage(
-                        "Customer already has a personal credit"
+                .expectErrorMatches(error ->
+                        error instanceof ResponseStatusException &&
+                                error.getMessage().contains("El cliente ya tiene un crédito personal")
                 )
                 .verify();
     }
@@ -213,15 +215,10 @@ class CreditServiceImplTest {
                 .build();
         when(repository.findById("cr1"))
                 .thenReturn(Mono.just(credit));
-        StepVerifier.create(
-                        service.consume(
-                                "cr1",
-                                BigDecimal.valueOf(100)
-                        )
-                )
-
-                .expectErrorMessage(
-                        "Only credit cards allow consumption"
+               StepVerifier.create(service.consume("cr1", BigDecimal.valueOf(100)))
+                .expectErrorMatches(error ->
+                        error instanceof ResponseStatusException &&
+                                error.getMessage().contains("Solo las tarjetas de crédito permiten realizar consumos.")
                 )
                 .verify();
     }
@@ -302,11 +299,10 @@ class CreditServiceImplTest {
                         service.payCredit(
                                 "cr1",
                                 "a1",
-                                BigDecimal.valueOf(200)
-                        )
-                )
-                .expectErrorMessage(
-                        "Payment exceeds debt"
+                                BigDecimal.valueOf(200)))
+                .expectErrorMatches(error ->
+                        error instanceof ResponseStatusException &&
+                                error.getMessage().contains("Payment exceeds debt")
                 )
                 .verify();
     }
@@ -419,7 +415,10 @@ class CreditServiceImplTest {
                 .thenReturn(Mono.empty());
 
         StepVerifier.create(service.findById("cr1"))
-                .expectErrorMessage("Credit not found")
+                .expectErrorMatches(error ->
+                        error instanceof ResponseStatusException &&
+                                error.getMessage().contains("Credit not found")
+                )
                 .verify();
     }
     @Test
@@ -437,7 +436,10 @@ class CreditServiceImplTest {
 
         StepVerifier.create(
                         service.consume("cr1", BigDecimal.valueOf(100)))
-                .expectErrorMessage("Credit limit exceeded")
+                .expectErrorMatches(error ->
+                        error instanceof ResponseStatusException &&
+                                error.getMessage().contains("Credit limit exceeded")
+                )
                 .verify();
     }
 
@@ -449,7 +451,10 @@ class CreditServiceImplTest {
 
         StepVerifier.create(
                         service.consume("cr1", BigDecimal.valueOf(100)))
-                .expectErrorMessage("Credit not found")
+                .expectErrorMatches(error ->
+                        error instanceof ResponseStatusException &&
+                                error.getMessage().contains("Credit not found")
+                )
                 .verify();
     }
     @Test
@@ -474,12 +479,11 @@ class CreditServiceImplTest {
                 );
 
         StepVerifier.create(
-                        service.payCredit(
-                                "cr1",
-                                "a1",
-                                BigDecimal.valueOf(100)
-                        ))
-                .expectErrorMessage("Insufficient balance")
+                        service.payCredit("cr1", "a1", BigDecimal.valueOf(100)))
+                .expectErrorMatches(error ->
+                        error instanceof ResponseStatusException &&
+                                error.getMessage().contains("Insufficient balance")
+                )
                 .verify();
     }
     @Test
@@ -489,12 +493,11 @@ class CreditServiceImplTest {
                 .thenReturn(Mono.empty());
 
         StepVerifier.create(
-                        service.payCredit(
-                                "cr1",
-                                "a1",
-                                BigDecimal.valueOf(100)
-                        ))
-                .expectErrorMessage("Credit not found")
+                        service.payCredit("cr1", "a1", BigDecimal.valueOf(100)))
+                .expectErrorMatches(error ->
+                        error instanceof ResponseStatusException &&
+                                error.getMessage().contains("Credit not found")
+                )
                 .verify();
     }
     @Test
@@ -504,7 +507,10 @@ class CreditServiceImplTest {
                 .thenReturn(Mono.empty());
 
         StepVerifier.create(service.delete("cr1"))
-                .expectErrorMessage("Credit not found")
+                .expectErrorMatches(error ->
+                        error instanceof ResponseStatusException &&
+                                error.getMessage().contains("Credit not found")
+                )
                 .verify();
 
         verify(repository, never()).delete(any());
