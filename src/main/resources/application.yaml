@@ -5,6 +5,9 @@ spring:
   data:
     mongodb:
       uri: mongodb://localhost:27017/creditdb
+    redis:
+      host: localhost
+      port: 6379
 
 server:
   port: 8083

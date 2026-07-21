@@ -5,6 +5,9 @@ spring:
   data:
     mongodb:
       uri: mongodb://admin:admin123@mongo:27017/creditdb?authSource=admin
+    redis:
+      host: redis
+      port: 6379
 
 server:
   port: 8083
